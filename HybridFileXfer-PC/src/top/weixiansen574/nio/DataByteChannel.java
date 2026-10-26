@@ -44,6 +44,22 @@ public class DataByteChannel implements ByteChannel, DataInput, DataOutput {
         }
     }
 
+    /**
+     * 写满整个 buffer（{@link SocketChannel} 上 {@code write(ByteBuffer)} 可能部分写，
+     * 续传位图等新增消息禁止用 {@link #write(ByteBuffer)}）。
+     */
+    public void writeFully(ByteBuffer src) throws IOException {
+        while (src.hasRemaining()) {
+            if (origin.write(src) == -1) {
+                throw new EOFException();
+            }
+        }
+    }
+
+    public void writeFully(byte[] b) throws IOException {
+        writeFully(ByteBuffer.wrap(b));
+    }
+
     @Override
     public void readFully(byte[] b) throws IOException {
         readFully(ByteBuffer.wrap(b));

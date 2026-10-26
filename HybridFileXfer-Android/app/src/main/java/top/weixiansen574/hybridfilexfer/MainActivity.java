@@ -46,18 +46,24 @@ import top.weixiansen574.hybridfilexfer.core.bean.ServerNetInterface;
 import top.weixiansen574.hybridfilexfer.droidcore.HFXServer;
 import top.weixiansen574.hybridfilexfer.droidcore.StartServerTask;
 import top.weixiansen574.hybridfilexfer.droidcore.callback.StartServerCallback;
+import top.weixiansen574.hybridfilexfer.foreground.TransferForegroundService;
 import top.weixiansen574.hybridfilexfer.listadapter.NetCardsAdapter;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener, ServiceConnection {
     public static final int REQUEST_CODE_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION = 1;
     public static final int REQUEST_CODE_TRANSFER = 2;
     public static final int RESULT_CODE_SERVER_DISCONNECT = 1;
+    public static final int REQUEST_CODE_POST_NOTIFICATIONS = 3;
     private NetCardsAdapter netCardsAdapter;
     private Spinner spinnerMode;
     Button startServerBtn;
     Button toTransfer;
     Context context;
     private boolean isShizuku = false;
+    /** 是否以 root 模式（Shizuku 以 root 启动）运行，用于决定是否拉起 RootWatchdog */
+    private boolean isRootMode = false;
+    /** 当前是否已经绑定 IO 服务，避免重复 unbind 抛 IllegalArgumentException */
+    private boolean bound = false;
     private HFXServer server;
     private Config config;
 
@@ -100,6 +106,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             }
         });
+
+        // 前台保活服务需要通知权限（API 33+ 为运行时权限），拒绝也不影响传输，只是看不到常驻通知
+        requestNotificationPermissionIfNeeded();
+    }
+
+    /** API 33+ 请求 POST_NOTIFICATIONS，其余版本无需处理 */
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return;
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        ActivityCompat.requestPermissions(this,
+                new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                REQUEST_CODE_POST_NOTIFICATIONS);
     }
 
     @Override
@@ -147,11 +170,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         if (spinnerMode.getSelectedItemPosition() == 0) {
             isShizuku = false;
+            isRootMode = false;
         } else {
             if (checkShizukuOrReq(spinnerMode.getSelectedItemPosition())) {
                 return;
             }
             isShizuku = true;
+            // 模式 1 = Shizuku 由 root 启动（Uid 0），只有这时才有必要拉起 root watchdog
+            isRootMode = spinnerMode.getSelectedItemPosition() == 1;
         }
         bindAndStartService();
     }
@@ -160,19 +186,32 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         netCardsAdapter.setEnableModify(false);
         startServerBtn.setEnabled(false);
         startServerBtn.setText(R.string.ting_zhi_fu_wu);
+        Context appContext = getApplicationContext();
+        // 先起前台保活服务（主进程常驻 + PARTIAL_WAKE_LOCK），再绑定 IO 服务
+        TransferForegroundService.start(appContext, isRootMode);
         if (isShizuku) {
-            Shizuku.bindUserService(IOService.getUserServiceArgs(context), this);
+            // 用 ApplicationContext 构造 UserServiceArgs，避免静态缓存持有 Activity
+            Shizuku.bindUserService(IOService.getUserServiceArgs(appContext), this);
+            bound = true;
         } else {
-            Intent intent = new Intent(context, IOService.class);
-            bindService(intent, this, Service.BIND_AUTO_CREATE);
+            Intent intent = new Intent(appContext, IOService.class);
+            // 用 ApplicationContext 绑定：绑定不再随 Activity 销毁而被动释放
+            bound = appContext.bindService(intent, this, Service.BIND_AUTO_CREATE);
         }
     }
 
     private void unbindService() {
+        // 先停保活服务，再解绑 IO 服务（与 bindAndStartService 顺序相反）
+        TransferForegroundService.stop(getApplicationContext());
+        if (!bound) {
+            return;
+        }
+        bound = false;
+        Context appContext = getApplicationContext();
         if (isShizuku) {
-            Shizuku.unbindUserService(IOService.getUserServiceArgs(context), this, true);
+            Shizuku.unbindUserService(IOService.getUserServiceArgs(appContext), this, true);
         } else {
-            unbindService(this);
+            appContext.unbindService(this);
         }
     }
 
@@ -180,6 +219,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public void onServiceConnected(ComponentName name, IBinder service) {
         IIOService iioService = IIOService.Stub.asInterface(service);
         server = new HFXServer(iioService);
+        // 续传清单需要 ApplicationContext（拿 ConfigDB）；未注入时自动降级为无续传
+        server.attachContext(getApplicationContext());
+        // 本次服务端的传输是否开启每块 CRC32（发送方决定，接收方遵从）
+        server.setBlockCrcEnabled(config.isBlockCrcEnabled());
         StartServerCallback callback = new StartServerCallback() {
             @Override
             public void onBindFailed(int port) {
@@ -288,6 +331,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.main_menu, menu);
+        MenuItem blockCrcItem = menu.findItem(R.id.block_crc);
+        if (blockCrcItem != null) {
+            blockCrcItem.setChecked(config.isBlockCrcEnabled());
+        }
         return super.onCreateOptionsMenu(menu);
     }
 
@@ -368,6 +415,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             });
 
             dialog.show();
+        } else if (itemId == R.id.block_crc) {
+            boolean enabled = !config.isBlockCrcEnabled();
+            config.setBlockCrcEnabled(enabled);
+            item.setChecked(enabled);
+            if (server != null) {
+                // 立即同步到当前服务端实例；否则下次传输才生效
+                server.setBlockCrcEnabled(enabled);
+            }
+            Toast.makeText(context,
+                    enabled ? R.string.block_crc_on : R.string.block_crc_off,
+                    Toast.LENGTH_SHORT).show();
+            return true;
         } else if (itemId == R.id.client) {
             startClient();
         }
@@ -524,8 +583,25 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     protected void onDestroy() {
         if (HFXServer.instance != null) {
             HFXServer.instance.disconnect(new BackstageTask.BaseEventHandler() {
+                @Override
+                public void onComplete() {
+                    // 断开完成后再解绑：此时 IO 服务已不再被使用
+                    unbindService();
+                }
+
+                @Override
+                public void onError(Throwable th) {
+                    // 退出流程中不再抛异常打断销毁，只解绑并记录
+                    unbindService();
+                    th.printStackTrace();
+                }
             });
+        } else if (bound) {
+            // 服务器没启动过但绑定还在（例如启动失败），这里直接解绑，避免 ApplicationContext 绑定泄漏
+            unbindService();
         }
+        // 兜底：确保前台保活服务被停掉（幂等）
+        TransferForegroundService.stop(getApplicationContext());
         super.onDestroy();
     }
 }

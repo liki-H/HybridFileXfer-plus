@@ -140,4 +140,16 @@
     <string name="controller_channel_ip">Controller channel IP</string>
     <string name="any_connectable_network_card_ip">Any connectable network card IP</string>
     <string name="home_dir">Home directory</string>
+    <!-- 保活相关（需求C） -->
+    <string name="keepalive_notification_channel_name">Transfer keep-alive</string>
+    <string name="keepalive_notification_channel_description">Keeps transfers and the IO service running while the screen is off or the app is in the background</string>
+    <string name="keepalive_notification_title">MultiTrack Fast Transfer is running</string>
+    <string name="keepalive_notification_text">Transfer service is running, keep the transfer alive to prevent it from being killed in the background</string>
+    <string name="keepalive_notification_text_root">Transfer service is running, root watchdog is guarding the IO service</string>
+    <!-- 续传相关（需求B） -->
+    <string name="block_crc">Per-block CRC32 check (resume)</string>
+    <string name="block_crc_on">Per-block CRC32 check enabled (takes effect for the next transfer)</string>
+    <string name="block_crc_off">Per-block CRC32 check disabled</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
 </resources>

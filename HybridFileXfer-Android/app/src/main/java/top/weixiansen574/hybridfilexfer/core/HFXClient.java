@@ -213,6 +213,8 @@ public abstract class HFXClient extends HFXService {
     protected abstract boolean mkdir(String parent, String child) throws Exception;
 
     private void handleShutdown() {
+        // 若此时处于暂停态，传输线程都阻塞在门控上，必须先 abortTransfer() 才能退出
+        abortTransfer();
         isRun = false;
         try {
             ctChannel.close();

@@ -1,5 +1,6 @@
 package top.weixiansen574.hybridfilexfer.droidcore;
 
+import android.content.Context;
 import android.os.RemoteException;
 
 import java.io.IOException;
@@ -22,6 +23,7 @@ import top.weixiansen574.hybridfilexfer.core.FileBlock;
 import top.weixiansen574.hybridfilexfer.core.HFXService;
 import top.weixiansen574.hybridfilexfer.core.ReadFileCall;
 import top.weixiansen574.hybridfilexfer.core.ReceiveFileCall;
+import top.weixiansen574.hybridfilexfer.core.ResumeStore;
 import top.weixiansen574.hybridfilexfer.core.SendFileCall;
 import top.weixiansen574.hybridfilexfer.core.SpeedMonitorThread;
 import top.weixiansen574.hybridfilexfer.core.TransferConnection;
@@ -39,9 +41,41 @@ public class HFXServer extends HFXService {
     protected ServerSocketChannel serverSocketChannel;
     protected int remoteFileSystem;
     protected String remoteHomeDir;
+    /** ApplicationContext：仅供 AndroidResumeStore 拿 ConfigDB，可为 null（降级为无续传） */
+    private Context appContext;
+    private ResumeStore resumeStore;
 
     public HFXServer(IIOService ioService) {
         this.ioService = ioService;
+    }
+
+    /**
+     * 注入 ApplicationContext（契约 §7.4 的最小改法，不改构造签名）。
+     *
+     * <p>必须在 onServiceConnected 之后、任何传输开始之前调用；未注入时 {@link #getResumeStore()} 返回 null，
+     * 传输退化为全量（绝不影响传输本身）。
+     */
+    public void attachContext(Context context) {
+        if (context == null) {
+            return;
+        }
+        Context applicationContext = context.getApplicationContext();
+        this.appContext = applicationContext != null ? applicationContext : context;
+        this.resumeStore = null;
+    }
+
+    @Override
+    protected ResumeStore getResumeStore() {
+        Context context = appContext;
+        if (context == null) {
+            return null;
+        }
+        ResumeStore store = resumeStore;
+        if (store == null) {
+            store = new AndroidResumeStore(context);
+            resumeStore = store;
+        }
+        return store;
     }
 
     public void startServer(int port, List<ServerNetInterface> interfaceList, int localBufferCount, int remoteBufferCount, StartServerCallback callback) throws IOException {
@@ -153,6 +187,8 @@ public class HFXServer extends HFXService {
     }
 
     public void closeServerSocket() {
+        // 宁多勿漏：会让 socket 脱离预期关闭的路径，先强制唤醒可能阻塞在门控上的传输线程
+        abortTransfer();
         if (serverSocketChannel != null) {
             try {
                 serverSocketChannel.close();
@@ -261,6 +297,8 @@ public class HFXServer extends HFXService {
     }
 
     public void disconnect(){
+        // 用户在暂停中点了"停止服务/退出"：不 abort 的话传输线程会永久阻塞在门控上
+        abortTransfer();
         //释放缓冲区块内存
         for (ByteBuffer buffer : buffers) {
             NativeMemory.freeBuffer(buffer);

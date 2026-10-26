@@ -16,7 +16,26 @@ import top.weixiansen574.hybridfilexfer.bean.BookMark;
 
 @SuppressLint("Range")
 public class ConfigDB extends SQLiteOpenHelper {
-    public static final int VERSION = 1;
+    /** 2：新增续传清单表 resume_manifest（需求B） */
+    public static final int VERSION = 2;
+
+    private static final String SQL_CREATE_RESUME =
+            "CREATE TABLE IF NOT EXISTS resume_manifest (" +
+                    " task_key      TEXT    NOT NULL," +
+                    " direction     INTEGER NOT NULL," +
+                    " remote_path   TEXT    NOT NULL," +
+                    " local_path    TEXT    NOT NULL," +
+                    " total_size    INTEGER NOT NULL," +
+                    " last_modified INTEGER NOT NULL," +
+                    " block_count   INTEGER NOT NULL," +
+                    " bitmap        BLOB    NOT NULL," +
+                    " completed     INTEGER NOT NULL," +
+                    " updated_at    INTEGER NOT NULL," +
+                    " PRIMARY KEY (task_key, local_path));";
+
+    private static final String SQL_CREATE_RESUME_INDEX =
+            "CREATE INDEX IF NOT EXISTS idx_resume_updated ON resume_manifest(updated_at);";
+
     private static ConfigDB instance;
     private ConfigDB(@Nullable Context context) {
         super(context, "config", null, VERSION);
@@ -43,11 +62,17 @@ public class ConfigDB extends SQLiteOpenHelper {
                 "    path TEXT    UNIQUE\n" +
                 "                 NOT NULL\n" +
                 ");");
+        db.execSQL(SQL_CREATE_RESUME);
+        db.execSQL(SQL_CREATE_RESUME_INDEX);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-
+        // 老用户从 v1 库升级不会走 onCreate，必须在此建续传表
+        if (oldVersion < 2) {
+            db.execSQL(SQL_CREATE_RESUME);
+            db.execSQL(SQL_CREATE_RESUME_INDEX);
+        }
     }
 
     public long addLocalBookmark(String path) {

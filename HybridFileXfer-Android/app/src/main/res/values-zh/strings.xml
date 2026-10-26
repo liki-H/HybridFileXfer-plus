@@ -139,4 +139,16 @@
     <string name="controller_channel_ip">控制器通道IP</string>
     <string name="any_connectable_network_card_ip">任意可连接的网卡IP</string>
     <string name="home_dir">主目录</string>
+    <!-- 保活相关（需求C） -->
+    <string name="keepalive_notification_channel_name">传输保活服务</string>
+    <string name="keepalive_notification_channel_description">息屏或切到后台时保持传输与 IO 服务常驻，防止被系统回收</string>
+    <string name="keepalive_notification_title">多轨快传正在运行</string>
+    <string name="keepalive_notification_text">传输服务运行中，保持常驻以防后台被系统回收</string>
+    <string name="keepalive_notification_text_root">传输服务运行中，已启用 root 守护 IO 服务</string>
+    <!-- 续传相关（需求B） -->
+    <string name="block_crc">分块 CRC32 校验（续传）</string>
+    <string name="block_crc_on">已开启分块 CRC32 校验（下次传输生效）</string>
+    <string name="block_crc_off">已关闭分块 CRC32 校验</string>
+    <string name="pause">暂停</string>
+    <string name="resume">继续</string>
 </resources>

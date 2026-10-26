@@ -126,6 +126,16 @@ public class IOServiceImpl extends IIOService.Stub {
         return new File(path).isFile();
     }
 
+    /**
+     * 文件长度（续传协商阶段的长度校验用）。
+     *
+     * @return 文件长度；不存在或不是普通文件返回 -1
+     */
+    public long getFileLength(String path){
+        File file = new File(path);
+        return file.isFile() ? file.length() : -1;
+    }
+
     public String getFileParent(String path){
         return new File(path).getParent();
     }

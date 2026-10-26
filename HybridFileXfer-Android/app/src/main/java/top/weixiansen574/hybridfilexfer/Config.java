@@ -63,4 +63,13 @@ public class Config {
     public String getConnectServerControllerIp(){
         return preferences.getString("connect_server_controller_ip","");
     }
+
+    /** 续传时是否每 block 校验 CRC32（默认关；开关由发送方决定，接收方遵从） */
+    public boolean isBlockCrcEnabled(){
+        return preferences.getBoolean("block_crc", false);
+    }
+
+    public void setBlockCrcEnabled(boolean enabled){
+        preferences.edit().putBoolean("block_crc", enabled).apply();
+    }
 }

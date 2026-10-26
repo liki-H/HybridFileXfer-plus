@@ -32,6 +32,11 @@ public class ReceiveFileCall implements Callable<Void> {
         long startTime = System.currentTimeMillis();
         try {
             while (true) {
+                // 门控：只在"读块头前"判定，绝不打断已经开始的块
+                if (!writeFileCall.getGate().awaitUnpaused()) {
+                    writeFileCall.finishChannel(tIndex);
+                    return null;
+                }
                 short header = channel.readShort();
                 switch (header) {
                     case TransferIdentifiers.FOLDER: {
@@ -48,6 +53,12 @@ public class ReceiveFileCall implements Callable<Void> {
                         long totalSize = channel.readLong();
                         int index = channel.readInt();
                         int length = channel.readInt();
+                        boolean checkCrc = writeFileCall.isCrcEnabled();
+                        int expectedCrc = 0;
+                        if (checkCrc) {
+                            // crc32 紧跟 int length、data 之前（契约 §4.2）
+                            expectedCrc = channel.readInt();
+                        }
                         callback.onFileDownloading(iName, path,
                                 index * (long) FileBlock.BLOCK_SIZE + length,
                                 totalSize);
@@ -63,6 +74,22 @@ public class ReceiveFileCall implements Callable<Void> {
                             connection.addDownloadedBytes(read);
                         }
                         channel.readFully(buffer);
+                        // index 越界校验（数据已读完，不会让 wire 残留半个块）
+                        int blockCount = FileBlock.calcBlockCount(totalSize);
+                        if (index < 0 || index >= blockCount) {
+                            throw new IOException("bad block index " + index + " for " + path
+                                    + " (blockCount=" + blockCount + ")");
+                        }
+                        if (checkCrc) {
+                            // 校验放在 putBlock 之前：不写盘 + 整文件标记未完成 + 中止
+                            int actualCrc = Crc32.compute(buffer, 0, length);
+                            if (actualCrc != expectedCrc) {
+                                writeFileCall.abortResumeFile(path);
+                                throw new IOException("CRC32 mismatch: " + path + " block=" + index
+                                        + " expected=0x" + Integer.toHexString(expectedCrc)
+                                        + " actual=0x" + Integer.toHexString(actualCrc));
+                            }
+                        }
                         writeFileCall.putBlock(new FileBlock(true, fileIndex, path, lastModified, totalSize, index, buffer), tIndex);
                         break;
                     }

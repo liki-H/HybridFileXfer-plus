@@ -56,4 +56,9 @@ public class DroidWriteFileCall extends WriteFileCall {
     protected boolean setFileLastModified(String path, long time) throws Exception {
         return ioService.setFileLastModified(path,time);
     }
+
+    @Override
+    protected long lengthOfFile(String path) throws Exception {
+        return ioService.getFileLength(path);
+    }
 }

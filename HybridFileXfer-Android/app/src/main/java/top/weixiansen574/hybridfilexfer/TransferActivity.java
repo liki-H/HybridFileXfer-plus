@@ -27,6 +27,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.List;
 import java.util.Objects;
 
+import top.weixiansen574.hybridfilexfer.core.TransferGate;
 import top.weixiansen574.hybridfilexfer.core.Utils;
 import top.weixiansen574.hybridfilexfer.core.bean.Directory;
 import top.weixiansen574.hybridfilexfer.core.bean.RemoteFile;
@@ -127,13 +128,24 @@ public class TransferActivity extends AppCompatActivity {
                 .show());
     }
 
+    /** 取当前传输门控的 Supplier（用于对话框的暂停/继续按钮） */
+    private java.util.function.Supplier<TransferGate> gateSupplier() {
+        return new java.util.function.Supplier<TransferGate>() {
+            @Override
+            public TransferGate get() {
+                HFXServer currentServer = server;
+                return currentServer == null ? null : currentServer.getCurrentGate();
+            }
+        };
+    }
+
     private void sendFilesToRemote(List<RemoteFile> files, Directory localDir, Directory remoteDir) {
-        TransferDialogHandler handler = new TransferDialogHandler(context, true, server.getConnectionListINames(), rightRVAdapter);
+        TransferDialogHandler handler = new TransferDialogHandler(context, true, server.getConnectionListINames(), rightRVAdapter, gateSupplier());
         new SendFilesToRemoteTask(handler, server, files, localDir, remoteDir).execute();
     }
 
     private void sendFilesToShelf(List<RemoteFile> selectedItems, Directory localDir, Directory remoteDir) {
-        TransferDialogHandler handler = new TransferDialogHandler(context, false, server.getConnectionListINames(), leftRVAdapter);
+        TransferDialogHandler handler = new TransferDialogHandler(context, false, server.getConnectionListINames(), leftRVAdapter, gateSupplier());
         new SendFilesToShelfTask(handler, server, selectedItems, localDir, remoteDir).execute();
     }
 
@@ -336,9 +348,14 @@ public class TransferActivity extends AppCompatActivity {
         FileSelectAdapter adapter;
 
         public TransferDialogHandler(Activity context, boolean isUpload, List<String> channelNames, FileSelectAdapter adapter) {
+            this(context, isUpload, channelNames, adapter, null);
+        }
+
+        public TransferDialogHandler(Activity context, boolean isUpload, List<String> channelNames,
+                                     FileSelectAdapter adapter, java.util.function.Supplier<TransferGate> gateSupplier) {
             this.context = context;
             this.adapter = adapter;
-            transferDialog = new TransferDialog(context, isUpload, channelNames);
+            transferDialog = new TransferDialog(context, isUpload, channelNames, gateSupplier);
             transferDialog.show();
         }
 

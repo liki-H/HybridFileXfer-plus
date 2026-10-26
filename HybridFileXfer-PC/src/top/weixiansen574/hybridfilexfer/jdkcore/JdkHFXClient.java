@@ -2,6 +2,7 @@ package top.weixiansen574.hybridfilexfer.jdkcore;
 
 import top.weixiansen574.hybridfilexfer.core.HFXClient;
 import top.weixiansen574.hybridfilexfer.core.ReadFileCall;
+import top.weixiansen574.hybridfilexfer.core.ResumeStore;
 import top.weixiansen574.hybridfilexfer.core.Utils;
 import top.weixiansen574.hybridfilexfer.core.WriteFileCall;
 import top.weixiansen574.hybridfilexfer.core.bean.Directory;
@@ -68,5 +69,17 @@ public class JdkHFXClient extends HFXClient {
     @Override
     protected ReadFileCall createReadFileCall(LinkedBlockingDeque<ByteBuffer> buffers, List<RemoteFile> files, Directory localDir, Directory remoteDir, int operateThreadCount) {
         return new JdkReadFileCall(buffers,files,localDir,remoteDir,operateThreadCount);
+    }
+
+    private ResumeStore resumeStore;
+
+    @Override
+    protected ResumeStore getResumeStore() {
+        ResumeStore store = resumeStore;
+        if (store == null) {
+            store = new JdkResumeStore();
+            resumeStore = store;
+        }
+        return store;
     }
 }

@@ -32,6 +32,19 @@ public class FileBlock implements Comparable<FileBlock> {
         return totalSize / BLOCK_SIZE + 1;
     }
 
+    /**
+     * 规范块数：0 字节文件按 1 块处理（与现有 ReadFileCall 的空块语义一致）。
+     *
+     * <p><b>禁止使用上面的实例方法 {@link #calcBlockCount()}</b>：它对整 MB 文件会多算 1 块，是错的，
+     * 且全仓库无调用点（契约 §2.6 原样保留，不许调用）。
+     */
+    public static int calcBlockCount(long totalSize) {
+        if (totalSize <= 0) {
+            return 1;
+        }
+        return (int) ((totalSize + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    }
+
     public boolean isFile(){
         return isFile;
     }

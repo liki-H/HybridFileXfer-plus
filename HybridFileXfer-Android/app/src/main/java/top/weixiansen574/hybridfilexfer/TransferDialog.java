@@ -17,7 +17,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
+import top.weixiansen574.hybridfilexfer.core.TransferGate;
 import top.weixiansen574.hybridfilexfer.core.Utils;
 import top.weixiansen574.hybridfilexfer.core.bean.TrafficInfo;
 
@@ -26,11 +28,20 @@ public class TransferDialog {
     private final Map<String, Holder> holderMap;
     private final Context context;
     private final View dialogView;
+    /** 取当前传输的门控（可能返回 null = 当前无传输） */
+    private final Supplier<TransferGate> gateSupplier;
+    private boolean paused;
     private AlertDialog dialog;
 
 
     public TransferDialog(Context context, boolean isUpload, List<String> channelNames) {
+        this(context, isUpload, channelNames, null);
+    }
+
+    public TransferDialog(Context context, boolean isUpload, List<String> channelNames,
+                          Supplier<TransferGate> gateSupplier) {
         this.context = context;
+        this.gateSupplier = gateSupplier;
         holderMap = new HashMap<>();
         LayoutInflater inflater = LayoutInflater.from(context);
         dialogView = View.inflate(context, R.layout.dialog_transfer, null);
@@ -54,14 +65,55 @@ public class TransferDialog {
 
 
     public void show() {
-        dialog = new AlertDialog.Builder(context)
+        AlertDialog.Builder builder = new AlertDialog.Builder(context)
                 .setTitle(isUpload ? context.getString(R.string.uploading_speed_zero) :
                         context.getString(R.string.downloading_speed_zero))
                 .setView(dialogView)
                 .setPositiveButton(R.string.complete, null)
-                .setCancelable(false)
-                .show();
+                .setCancelable(false);
+        if (gateSupplier != null) {
+            // 暂停/继续：只做本地门控，不拆 socket、不发协议消息
+            builder.setNeutralButton(R.string.pause, null);
+        }
+        dialog = builder.show();
         dialog.getButton(DialogInterface.BUTTON_POSITIVE).setEnabled(false);
+        if (gateSupplier != null) {
+            Button neutralButton = dialog.getButton(DialogInterface.BUTTON_NEUTRAL);
+            neutralButton.setOnClickListener(v -> togglePause());
+        }
+    }
+
+    /** 暂停/继续切换 */
+    private void togglePause() {
+        TransferGate gate = gateSupplier == null ? null : gateSupplier.get();
+        if (gate == null) {
+            // 当前没有进行中的传输（会话已结束）
+            return;
+        }
+        Button neutralButton = dialog.getButton(DialogInterface.BUTTON_NEUTRAL);
+        if (gate.isPaused()) {
+            gate.resume();
+            paused = false;
+            if (neutralButton != null) {
+                neutralButton.setText(R.string.pause);
+            }
+        } else {
+            gate.pause();
+            paused = true;
+            if (neutralButton != null) {
+                neutralButton.setText(R.string.resume);
+            }
+        }
+    }
+
+    private void setNeutralBtnEnable(boolean enable) {
+        if (dialog == null || gateSupplier == null) {
+            return;
+        }
+        Button neutralButton = dialog.getButton(DialogInterface.BUTTON_NEUTRAL);
+        if (neutralButton != null) {
+            neutralButton.setEnabled(enable);
+        }
     }
 
     public void showEvent(String iName, String event) {
@@ -106,6 +158,11 @@ public class TransferDialog {
 
     public void setCloseBtnEnable(boolean enable) {
         dialog.getButton(DialogInterface.BUTTON_POSITIVE).setEnabled(enable);
+        // 传输结束（成功/失败/中止）后门控已失效，暂停按钮不再有意义
+        if (enable) {
+            paused = false;
+            setNeutralBtnEnable(false);
+        }
     }
 
     public void setButton(String text, View.OnClickListener onClickListener) {

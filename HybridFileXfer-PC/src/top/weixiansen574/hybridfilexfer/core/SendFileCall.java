@@ -1,5 +1,6 @@
 package top.weixiansen574.hybridfilexfer.core;
 
+import java.nio.ByteBuffer;
 import java.util.concurrent.Callable;
 
 import top.weixiansen574.hybridfilexfer.core.callback.TransferFileCallback;
@@ -25,6 +26,12 @@ public class SendFileCall implements Callable<Void> {
         try {
             long startTime = System.currentTimeMillis();
             while (true) {
+                // 门控：只在"取块前"判定，绝不打断已经开始的块（否则 wire 上会残留半个块）
+                if (!readFileCall.getGate().awaitUnpaused()) {
+                    channel.writeShort(TransferIdentifiers.END_OF_INTERRUPTED);
+                    callback.onChannelError(connection.iName, TransferFileCallback.ERROR_TYPE_INTERRUPT, null);
+                    break;
+                }
                 fileBlock = readFileCall.takeBlock();
                 //-1为特殊块
                 if (fileBlock.fileIndex == -1) {
@@ -54,6 +61,12 @@ public class SendFileCall implements Callable<Void> {
                 channel.writeLong(fileBlock.totalSize);//总大小
                 channel.writeInt(fileBlock.index);//索引
                 channel.writeInt(fileBlock.getLength());//单块的长度
+                if (readFileCall.isCrcEnabled()) {
+                    // crc32 紧跟 int length、data 之前（契约 §4.2）。此时 data 尚未 flip，
+                    // position == length，用绝对索引计算，不改变 position/limit，零拷贝。
+                    ByteBuffer data = fileBlock.data;
+                    channel.writeInt(Crc32.compute(data, 0, data.position()));
+                }
 
                 callback.onFileUploading(connection.iName, fileBlock.path,
                         fileBlock.getStartPosition() + fileBlock.getLength(),

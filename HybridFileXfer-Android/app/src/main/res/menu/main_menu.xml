@@ -27,6 +27,12 @@
                 android:id="@+id/client"
                 android:icon="@drawable/baseline_phonelink_ring_24"
                 android:title="@string/lian_jie_shou_ji_fu_wu_duan" />
+            <item
+                android:id="@+id/block_crc"
+                android:checkable="true"
+                android:checked="false"
+                android:icon="@drawable/baseline_check_circle_24"
+                android:title="@string/block_crc" />
 
         </menu>
     </item>

@@ -4,6 +4,7 @@
  */
 package top.weixiansen574.hybridfilexfer;
 
+import top.weixiansen574.hybridfilexfer.core.HFXService;
 import top.weixiansen574.hybridfilexfer.core.Utils;
 import top.weixiansen574.hybridfilexfer.core.bean.TrafficInfo;
 import top.weixiansen574.hybridfilexfer.core.callback.ClientCallBack;
@@ -154,6 +155,8 @@ public class Main {
         // 打印版本号
         if (paramMap.containsKey("-v")) {
             Strings.printf("version");
+            // 同时打印协议版本，便于两端排查"版本不一致"导致的连接被拒
+            System.out.println("protocol: " + HFXService.VERSION_CODE);
             return;
         }
 
@@ -194,6 +197,11 @@ public class Main {
         }
 
         JdkHFXClient hfxClient = new JdkHFXClient(serverAddress, 5740, homeDir);
+        // --crc：续传时每 block 校验 CRC32（默认关）
+        if (paramMap.containsKey("-crc")) {
+            hfxClient.setBlockCrcEnabled(true);
+            Strings.printf("block_crc_enabled");
+        }
         if (hfxClient.connect(connectServerCallback)) {
             hfxClient.start(clientCallBack);
         }
@@ -236,6 +244,8 @@ public class Main {
                     case "--dir":           key = "-d"; break;
                     case "--help":          key = "-h"; break;
                     case "--version":       key = "-v"; break;
+                    case "--crc":
+                    case "-crc":            key = "-crc"; break;
                     case "-c":
                     case "-s":
                     case "-d":

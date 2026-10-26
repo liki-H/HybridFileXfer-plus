@@ -11,6 +11,7 @@ import top.weixiansen574.hybridfilexfer.NativeMemory;
 import top.weixiansen574.hybridfilexfer.aidl.IIOService;
 import top.weixiansen574.hybridfilexfer.core.HFXClient;
 import top.weixiansen574.hybridfilexfer.core.ReadFileCall;
+import top.weixiansen574.hybridfilexfer.core.ResumeStore;
 import top.weixiansen574.hybridfilexfer.core.WriteFileCall;
 import top.weixiansen574.hybridfilexfer.core.bean.Directory;
 import top.weixiansen574.hybridfilexfer.core.bean.RemoteFile;
@@ -68,6 +69,21 @@ public class DroidHFXClient extends HFXClient {
     @Override
     protected ReadFileCall createReadFileCall(LinkedBlockingDeque<ByteBuffer> buffers, List<RemoteFile> files, Directory localDir, Directory remoteDir, int operateThreadCount) {
         return new DroidReadFileCall(iioService,buffers,files,localDir,remoteDir,operateThreadCount);
+    }
+
+    private ResumeStore resumeStore;
+
+    @Override
+    protected ResumeStore getResumeStore() {
+        if (context == null) {
+            return null;
+        }
+        ResumeStore store = resumeStore;
+        if (store == null) {
+            store = new AndroidResumeStore(context);
+            resumeStore = store;
+        }
+        return store;
     }
 
     public void freeBuffers(){

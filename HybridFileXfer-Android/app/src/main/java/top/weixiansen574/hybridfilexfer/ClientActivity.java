@@ -9,6 +9,7 @@ import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.app.Service;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
@@ -33,12 +34,17 @@ import top.weixiansen574.hybridfilexfer.core.Utils;
 import top.weixiansen574.hybridfilexfer.core.bean.TrafficInfo;
 import top.weixiansen574.hybridfilexfer.core.callback.TransferFileCallback;
 import top.weixiansen574.hybridfilexfer.droidcore.DroidHFXClient;
+import top.weixiansen574.hybridfilexfer.foreground.TransferForegroundService;
 import top.weixiansen574.hybridfilexfer.tasks.ClientTask;
 import top.weixiansen574.hybridfilexfer.tasks.ConnectServerTask;
 
 public class ClientActivity extends AppCompatActivity implements ServiceConnection {
     Activity context;
     boolean isShizuku = false;
+    /** 是否以 root 模式（Shizuku 由 root 启动）连接，用于决定是否拉起 RootWatchdog */
+    boolean isRootMode = false;
+    /** 当前是否已经绑定 IO 服务，避免重复 unbind 抛 IllegalArgumentException */
+    private boolean bound = false;
     int ioMode;
     String controllerIp;
     String homeDir;
@@ -66,6 +72,8 @@ public class ClientActivity extends AppCompatActivity implements ServiceConnecti
 
         ioMode = extras.getInt("io_mode");
         isShizuku = ioMode != 0;
+        // 模式 1 = Shizuku 由 root 启动（Uid 0），只有这时才有必要拉起 root watchdog
+        isRootMode = ioMode == 1;
         controllerIp = extras.getString("controller_ip");
         homeDir = extras.getString("home_dir");
 
@@ -84,19 +92,32 @@ public class ClientActivity extends AppCompatActivity implements ServiceConnecti
     }
 
     private void bindAndStartService() {
+        Context appContext = getApplicationContext();
+        // 先起前台保活服务（主进程常驻 + PARTIAL_WAKE_LOCK），再绑定 IO 服务
+        TransferForegroundService.start(appContext, isRootMode);
         if (isShizuku) {
-            Shizuku.bindUserService(IOService.getUserServiceArgs(context), this);
+            // 用 ApplicationContext 构造 UserServiceArgs，避免静态缓存持有 Activity
+            Shizuku.bindUserService(IOService.getUserServiceArgs(appContext), this);
+            bound = true;
         } else {
-            Intent intent = new Intent(context, IOService.class);
-            bindService(intent, this, Service.BIND_AUTO_CREATE);
+            Intent intent = new Intent(appContext, IOService.class);
+            // 用 ApplicationContext 绑定：绑定不再随 Activity 销毁而被动释放
+            bound = appContext.bindService(intent, this, Service.BIND_AUTO_CREATE);
         }
     }
 
     private void unbindService() {
+        // 先停保活服务，再解绑 IO 服务（与 bindAndStartService 顺序相反）
+        TransferForegroundService.stop(getApplicationContext());
+        if (!bound) {
+            return;
+        }
+        bound = false;
+        Context appContext = getApplicationContext();
         if (isShizuku) {
-            Shizuku.unbindUserService(IOService.getUserServiceArgs(context), this, true);
+            Shizuku.unbindUserService(IOService.getUserServiceArgs(appContext), this, true);
         } else {
-            unbindService(this);
+            appContext.unbindService(this);
         }
     }
 
@@ -105,6 +126,8 @@ public class ClientActivity extends AppCompatActivity implements ServiceConnecti
         iioService = IIOService.Stub.asInterface(service);
         progressDialog.setMessage(getString(R.string.connecting_server));
         client = new DroidHFXClient(controllerIp, 5740, homeDir, iioService, context);
+        // 本端作为发送方时是否每块带 CRC32（接收方的设置项在"收"时无效）
+        client.setBlockCrcEnabled(Config.getInstance(context).isBlockCrcEnabled());
         new ConnectServerTask(new ConnectServerTask.Callback() {
             @Override
             public void onConnectSuccess(List<String> channelNames) {
@@ -313,9 +336,12 @@ public class ClientActivity extends AppCompatActivity implements ServiceConnecti
 
     @Override
     protected void onDestroy() {
-        if (iioService != null) {
+        // 用 ApplicationContext 绑定后不会自动解绑，必须显式解绑，否则会泄漏 Activity（ServiceConnection）
+        if (bound) {
             unbindService();
         }
+        // 兜底：确保前台保活服务被停掉（幂等）
+        TransferForegroundService.stop(getApplicationContext());
         super.onDestroy();
     }
 

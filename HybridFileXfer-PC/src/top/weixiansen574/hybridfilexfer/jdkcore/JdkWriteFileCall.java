@@ -52,6 +52,12 @@ public class JdkWriteFileCall extends WriteFileCall {
         return new File(path).setLastModified(time);
     }
 
+    @Override
+    protected long lengthOfFile(String path) throws Exception {
+        File file = new File(path);
+        return file.exists() && file.isFile() ? file.length() : -1L;
+    }
+
     private void mkdirOrThrow(File file) throws IOException {
         if (file.exists()) {
             //如果存在且是一个文件则删除再创建成文件夹
