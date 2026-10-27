@@ -1,0 +1,63 @@
+name: 'Build PC jar'
+
+# 触发条件：PC 目录内任意文件变化，或手动触发
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'HybridFileXfer-PC/**'
+      - '.github/workflows/pc-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pc-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v4
+
+      - name: 'Setup Java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: 21
+
+      - name: 'Compile and package HybridFileXfer.jar'
+        shell: bash
+        working-directory: 'HybridFileXfer-PC'
+        run: |
+          set -euo pipefail
+          build_dir="$RUNNER_TEMP/pc-build"
+          rm -rf "$build_dir"
+          mkdir -p "$build_dir/classes" "$build_dir/stub/org/jetbrains/annotations"
+
+          # 仓库里没有 src/lib/annotations-24.0.1.jar，
+          # 内联一个等价的 @interface（CLASS retention，运行期无影响），保证 jar 自包含。
+          printf 'package org.jetbrains.annotations;\npublic @interface NotNull {}\n' \
+            > "$build_dir/stub/org/jetbrains/annotations/NotNull.java"
+
+          find src -name '*.java' -print > "$build_dir/sources.txt"
+          printf '%s\n' "$build_dir/stub/org/jetbrains/annotations/NotNull.java" >> "$build_dir/sources.txt"
+          javac -encoding UTF-8 -nowarn -d "$build_dir/classes" @"$build_dir/sources.txt"
+
+          cp src/messages_*.properties "$build_dir/classes/"
+          jar cfm HybridFileXfer.jar src/META-INF/MANIFEST.MF -C "$build_dir/classes" .
+
+          echo "=== smoke test: java -jar HybridFileXfer.jar -v ==="
+          java -jar HybridFileXfer.jar -v
+
+      - name: 'Upload whole PC folder as zip'
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'HybridFileXfer-PC'
+          path: 'HybridFileXfer-PC'
+          compression-level: 9
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
